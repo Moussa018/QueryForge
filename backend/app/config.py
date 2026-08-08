@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # --- LLM ---------------------------------------------------------------
     openai_api_key: str = ""
-    llm_model: str = "gpt-4o"
+    llm_model: str = "llama-3.1-8b-instant"
     llm_temperature: float = 0.0
 
     # --- Garde-fous d'execution -------------------------------------------

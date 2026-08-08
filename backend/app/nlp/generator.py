@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from pydantic import BaseModel, Field
 
 from app.config import Settings
@@ -97,7 +97,8 @@ class SQLGenerator:
                 "OPENAI_API_KEY absent : impossible de generer du SQL. "
                 "Renseignez-le dans backend/.env"
             )
-        llm = ChatOpenAI(
+        # Initialisation du client Google Gemini
+        llm = ChatGroq(
             model=settings.llm_model,
             temperature=settings.llm_temperature,
             api_key=settings.openai_api_key,

@@ -66,8 +66,7 @@ TABLE public.orders  -- ~6 000 lignes (
 
 Sans ces valeurs, le modèle écrit `WHERE status = 'Shipped'` au lieu de
 `'shipped'` : la requête est valide, ne lève aucune erreur, et renvoie zéro
-ligne — le pire des échecs, parce qu'il est silencieux. Les colonnes à forte
-cardinalité (`email`, `full_name`) sont détectées et exclues de
+ligne. Les colonnes à forte cardinalité (`email`, `full_name`) sont détectées et exclues de
 l'échantillonnage pour ne pas gonfler le prompt.
 
 Brancher QueryForge sur une autre base ne demande aucune modification de code :
@@ -131,7 +130,7 @@ La barrière 2 a été vérifiée en connectant un **superutilisateur** : le `DE
 
 ### 1. Base de données
 
-**Option A — PostgreSQL déjà installé** (aucun conteneur, plus léger)
+**Option A — PostgreSQL déjà installé**
 
 ```bash
 # adapter le port : 5432 par défaut, 5433 sur certaines installations Windows

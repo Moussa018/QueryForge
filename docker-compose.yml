@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: queryforge-db
+    environment:
+      POSTGRES_DB: queryforge
+      POSTGRES_USER: queryforge
+      POSTGRES_PASSWORD: queryforge
+    ports:
+      - "5432:5432"
+    volumes:
+      # Les fichiers .sql sont joues dans l'ordre alphabetique au premier
+      # demarrage seulement : schema, donnees, puis creation du role lecture seule.
+      - ./db:/docker-entrypoint-initdb.d:ro
+      - queryforge_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U queryforge -d queryforge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    container_name: queryforge-api
+    environment:
+      # L'API se connecte avec le role en lecture seule, jamais avec le proprietaire.
+      DATABASE_URL: postgresql+psycopg2://queryforge_ro:readonly@db:5432/queryforge
+      # Non bloquant a l'interpolation : sans cle, /health et /schema restent
+      # utilisables et signalent llm=false. Exiger la variable ici empecherait
+      # meme un `docker compose up db`.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CORS_ORIGINS: '["http://localhost:5173"]'
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  queryforge_pgdata:

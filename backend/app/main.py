@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 
 from app.config import get_settings
+from app.investigation.agent import InvestigationAgent, Limits, LLMReasoner
+from app.investigation.tools import InvestigationTools
 from app.nlp.generator import SQLGenerator
 from app.pipeline import PipelineError, QueryForgePipeline
 from app.security.guard import SQLValidationError, validate
@@ -150,3 +154,37 @@ def validate_sql(request: ValidateRequest) -> dict:
     except SQLValidationError as err:
         return {"valid": False, "reason": str(err)}
     return {"valid": True, "tables": sorted(report.referenced_tables)}
+
+
+class InvestigateRequest(BaseModel):
+    question: str = Field(min_length=5, max_length=2000)
+
+
+@app.post("/investigate")
+def investigate(request: InvestigateRequest) -> StreamingResponse:
+    """Enquete sur une question ouverte ; les etapes arrivent en direct (SSE)."""
+    active = _require_pipeline()
+    try:
+        agent = InvestigationAgent(
+            reasoner=LLMReasoner(settings),
+            tools=InvestigationTools(active.introspector.get_schema, active.run_sql),
+            schema_provider=active.introspector.get_schema,
+            limits=Limits.from_settings(settings),
+        )
+    except Exception as err:
+        raise HTTPException(status_code=503, detail=str(err)) from err
+
+    def stream():
+        try:
+            for event in agent.run(request.question):
+                yield f"event: {event['event']}\ndata: {json.dumps(event, ensure_ascii=False, default=str)}\n\n"
+        except Exception:
+            logger.exception("Enquete interrompue")
+            err = {"event": "error", "message": "Erreur interne pendant l'enquete."}
+            yield f"event: error\ndata: {json.dumps(err, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

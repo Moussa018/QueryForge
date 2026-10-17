@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     # Cout estime par EXPLAIN au-dela duquel on refuse d'executer.
     max_explain_cost: float = 1_000_000.0
 
+    # --- Enquetes (/investigate) -------------------------------------------
+    # Nombre maximal d'etapes d'analyse par enquete.
+    investigation_max_steps: int = 6
+    # Cout EXPLAIN cumule maximal sur toute l'enquete.
+    investigation_max_total_cost: float = 5_000_000.0
+    # Etapes consecutives sans changement de statut d'hypothese avant arret.
+    investigation_stall_limit: int = 2
+
     # --- Introspection -----------------------------------------------------
     schema_cache_ttl_seconds: int = 300
     # Schemas Postgres exposes au modele. Les catalogues systeme sont exclus.

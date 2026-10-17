@@ -90,6 +90,14 @@ class PipelineOutcome:
         }
 
 
+@dataclass
+class SqlRun:
+    sql: str
+    result: QueryResult
+    estimated_cost: float
+    notes: list[str] = field(default_factory=list)
+
+
 class QueryForgePipeline:
     def __init__(self, engine: Engine, settings: Settings, generator: SQLGenerator) -> None:
         self._engine = engine
@@ -147,6 +155,29 @@ class QueryForgePipeline:
             "Reformulez la question ou precisez les tables concernees.",
             stage="validation",
             attempts=attempt_log,
+        )
+
+    def run_sql(self, sql: str) -> SqlRun:
+        """Passe du SQL deja ecrit (outils de l'agent) dans les memes barrieres.
+
+        Memes etapes que `run` sans la generation : validation AST, bornage,
+        EXPLAIN, transaction READ ONLY. Les exceptions (`SQLValidationError`,
+        `QueryTooExpensive`, erreur Postgres) remontent telles quelles pour que
+        l'appelant decide s'il corrige ou abandonne.
+        """
+        schema = self._introspector.get_schema()
+        report = validate(sql, known_tables=schema.table_names())
+        optimized = optimize(report.statement, self._settings)
+
+        with readonly_transaction(self._engine, self._settings) as conn:
+            cost, est_rows, _plan = explain(conn, optimized.sql, self._settings)
+            result = execute(conn, optimized.sql, self._settings)
+
+        return SqlRun(
+            sql=optimized.sql,
+            result=result,
+            estimated_cost=cost,
+            notes=optimized.notes + result.notes,
         )
 
     def _execute(

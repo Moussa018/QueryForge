@@ -19,7 +19,7 @@ class Action(BaseModel):
     """Prochaine etape demandee par le modele. Les champs inutiles restent vides."""
 
     tool: str = Field(
-        description="compare_periods | breakdown | run_sql | finish"
+        description="compare_periods | breakdown | finish"
     )
     rationale: str = Field(default="", description="Pourquoi cette etape, en une phrase.")
     hypothesis_id: str = Field(default="", description="Hypothese testee par cette etape.")
@@ -39,8 +39,6 @@ class Action(BaseModel):
     p1_end: str = ""
     p2_start: str = ""
     p2_end: str = ""
-    # run_sql
-    sql: str = ""
 
     def key(self) -> str:
         """Identite de l'action, pour detecter une requete deja faite."""
@@ -116,25 +114,20 @@ class InvestigationState:
     observations: list[Observation] = field(default_factory=list)
     seen: set[str] = field(default_factory=set)
     consecutive_errors: int = 0
-    stalled_steps: int = 0
 
     def set_hypotheses(self, hypotheses: list[Hypothesis]) -> None:
         for h in hypotheses:
             self.hypotheses[h.id] = h
             self.status[h.id] = "pending"
 
-    def apply_updates(self, updates: list[HypothesisUpdate]) -> bool:
-        """Applique les mises a jour ; renvoie True si au moins un statut a change."""
-        changed = False
+    def apply_updates(self, updates: list[HypothesisUpdate]) -> None:
+        """Applique les mises a jour ; ignore les identifiants et statuts inconnus."""
         for u in updates:
             if u.hypothesis_id not in self.hypotheses or u.status not in HYPOTHESIS_STATUSES:
                 continue
-            if self.status[u.hypothesis_id] != u.status:
-                changed = True
             self.status[u.hypothesis_id] = u.status
             if u.evidence:
                 self.evidence[u.hypothesis_id] = u.evidence
-        return changed
 
     def render_hypotheses(self) -> str:
         lines = []

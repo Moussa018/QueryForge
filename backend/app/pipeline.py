@@ -1,86 +1,35 @@
-"""Orchestration : question en francais -> resultat tabulaire.
+"""Execution securisee d'une requete SQL : le socle utilise par l'agent d'enquete.
 
-    question
+    SQL (construit par les outils de l'agent)
        |
        v
-  [1] introspection du schema (cache TTL)
+  [1] validation AST contre le schema reel
        |
        v
-  [2] generation SQL (LLM, sortie structuree)
+  [2] bornage (LIMIT injecte ou plafonne)
        |
        v
-  [3] validation AST  --refus--> [2] avec le motif du refus (boucle bornee)
+  [3] execution en transaction READ ONLY, avec timeout
        |
        v
-  [4] optimisation / bornage (LIMIT, plafond)
-       |
-       v
-  [5] execution en transaction READ ONLY
-       |
-       v
-    resultat + explication + graphique suggere
+    resultat
 
-L'etape 3 renvoie au modele le motif exact du refus. C'est ce qui rattrape le
-cas frequent d'une colonne halluciné : le modele corrige tout seul au 2e tour.
+Le modele ne fournit jamais de SQL : ce sont les outils de l'agent qui le
+construisent, et il passe quand meme par ces trois etapes.
 """
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
-from typing import Any
 
 from sqlalchemy import Engine
 
 from app.config import Settings
 from app.executor.runner import QueryResult, execute
-from app.nlp.generator import GenerationContext, GeneratedQuery, SQLGenerator
 from app.optimizer.optimizer import optimize
 from app.schema.introspector import SchemaIntrospector
-from app.security.guard import SQLValidationError, validate
+from app.security.guard import validate
 from app.security.readonly import readonly_transaction
-
-logger = logging.getLogger(__name__)
-
-MAX_GENERATION_ATTEMPTS = 3
-
-
-class PipelineError(Exception):
-    """Echec destine a l'utilisateur : le message est sur a afficher."""
-
-    def __init__(self, message: str, *, stage: str, attempts: list[dict[str, str]] | None = None):
-        super().__init__(message)
-        self.stage = stage
-        self.attempts = attempts or []
-
-
-@dataclass
-class PipelineOutcome:
-    question: str
-    sql: str
-    explanation: str
-    chart_hint: str
-    assumptions: list[str]
-    result: QueryResult
-    optimizer_notes: list[str] = field(default_factory=list)
-    attempts: int = 1
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "question": self.question,
-            "sql": self.sql,
-            "explanation": self.explanation,
-            "chart_hint": self.chart_hint,
-            "assumptions": self.assumptions,
-            "columns": self.result.columns,
-            "column_types": self.result.column_types,
-            "rows": self.result.rows,
-            "row_count": self.result.row_count,
-            "truncated": self.result.truncated,
-            "duration_ms": round(self.result.duration_ms, 1),
-            "notes": self.optimizer_notes + self.result.notes,
-            "attempts": self.attempts,
-        }
 
 
 @dataclass
@@ -91,67 +40,20 @@ class SqlRun:
 
 
 class QueryForgePipeline:
-    def __init__(self, engine: Engine, settings: Settings, generator: SQLGenerator) -> None:
+    def __init__(self, engine: Engine, settings: Settings) -> None:
         self._engine = engine
         self._settings = settings
-        self._generator = generator
         self._introspector = SchemaIntrospector(engine, settings)
 
     @property
     def introspector(self) -> SchemaIntrospector:
         return self._introspector
 
-    def run(self, question: str) -> PipelineOutcome:
-        schema = self._introspector.get_schema()
-        known_tables = schema.table_names()
-
-        retry_context: GenerationContext | None = None
-        attempt_log: list[dict[str, str]] = []
-
-        for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
-            try:
-                generated: GeneratedQuery = self._generator.generate(question, schema, retry_context)
-            except Exception as err:
-                # Panne du fournisseur (quota, cle invalide, coupure reseau) :
-                # inutile de reessayer, et l'utilisateur doit voir la cause
-                # reelle plutot qu'une "erreur interne" opaque.
-                raise PipelineError(_describe_llm_failure(err), stage="llm") from err
-
-            if not generated.feasible:
-                raise PipelineError(generated.explanation, stage="generation")
-
-            try:
-                report = validate(generated.sql, known_tables=known_tables)
-            except SQLValidationError as err:
-                logger.warning("SQL refuse (tentative %s) : %s", attempt, err)
-                attempt_log.append({"sql": generated.sql, "error": str(err)})
-                retry_context = GenerationContext(failed_sql=generated.sql, error=str(err))
-                continue
-
-            optimized = optimize(report.statement, self._settings)
-
-            try:
-                return self._execute(question, generated, optimized, attempts=attempt)
-            except Exception as err:  # erreur SQL renvoyee par Postgres
-                message = _clean_db_error(err)
-                logger.warning("Execution echouee (tentative %s) : %s", attempt, message)
-                attempt_log.append({"sql": optimized.sql, "error": message})
-                retry_context = GenerationContext(failed_sql=optimized.sql, error=message)
-
-        raise PipelineError(
-            f"Aucune requete valide apres {MAX_GENERATION_ATTEMPTS} tentatives. "
-            "Reformulez la question ou precisez les tables concernees.",
-            stage="validation",
-            attempts=attempt_log,
-        )
-
     def run_sql(self, sql: str) -> SqlRun:
-        """Passe du SQL deja ecrit (outils de l'agent) dans les memes barrieres.
+        """Valide, borne et execute du SQL en lecture seule.
 
-        Memes etapes que `run` sans la generation : validation AST, bornage,
-        transaction READ ONLY. Les exceptions (`SQLValidationError`,
-        erreur Postgres) remontent telles quelles pour que
-        l'appelant decide s'il corrige ou abandonne.
+        Les exceptions (`SQLValidationError`, erreur Postgres) remontent telles
+        quelles pour que l'appelant decide s'il corrige ou abandonne.
         """
         schema = self._introspector.get_schema()
         report = validate(sql, known_tables=schema.table_names())
@@ -166,54 +68,12 @@ class QueryForgePipeline:
             notes=optimized.notes + result.notes,
         )
 
-    def _execute(
-        self,
-        question: str,
-        generated: GeneratedQuery,
-        optimized,
-        *,
-        attempts: int,
-    ) -> PipelineOutcome:
-        with readonly_transaction(self._engine, self._settings) as conn:
-            result = execute(conn, optimized.sql, self._settings)
-
-        return PipelineOutcome(
-            question=question,
-            sql=optimized.sql,
-            explanation=generated.explanation,
-            chart_hint=generated.chart_hint,
-            assumptions=generated.assumptions,
-            result=result,
-            optimizer_notes=optimized.notes,
-            attempts=attempts,
-        )
-
-
-def _describe_llm_failure(err: Exception) -> str:
-    """Traduit une panne du fournisseur LLM en message actionnable."""
-    name = type(err).__name__
-    text = str(err)
-
-    if "insufficient_quota" in text or "credit_balance_exhausted" in text:
-        return (
-            "Le compte OpenAI n'a plus de credits : la generation est impossible. "
-            "Rechargez le compte sur platform.openai.com, ou renseignez une autre "
-            "cle dans backend/.env."
-        )
-    if name == "RateLimitError" or "rate_limit" in text:
-        return "Limite de debit OpenAI atteinte. Reessayez dans quelques secondes."
-    if name == "AuthenticationError" or "invalid_api_key" in text:
-        return "Cle OPENAI_API_KEY invalide ou revoquee. Verifiez backend/.env."
-    if name in ("APITimeoutError", "APIConnectionError"):
-        return "L'API OpenAI est injoignable (reseau ou delai depasse). Reessayez."
-    return f"Le service de generation a echoue ({name})."
-
 
 def _clean_db_error(err: Exception) -> str:
     """Reduit une exception SQLAlchemy a la ligne utile de Postgres.
 
     Le texte brut contient la requete complete et le chemin du driver : trop
-    bruyant pour le modele, et a ne pas exposer tel quel dans l'UI.
+    bruyant pour le modele, et a ne pas exposer tel quel.
     """
     message = str(getattr(err, "orig", err))
     first_line = message.strip().splitlines()[0] if message.strip() else "Erreur inconnue."

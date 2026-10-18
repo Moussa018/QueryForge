@@ -16,7 +16,6 @@ from app.config import Settings
 @dataclass
 class QueryResult:
     columns: list[str]
-    column_types: dict[str, str]
     rows: list[dict[str, Any]]
     row_count: int
     truncated: bool
@@ -32,7 +31,7 @@ def execute(conn: Connection, sql: str, settings: Settings) -> QueryResult:
     columns = list(result.keys())
 
     # On lit une ligne de plus que le plafond : si elle existe, le resultat a ete
-    # tronque et l'UI doit le dire plutot que de laisser croire a un total.
+    # tronque et le rapport doit le dire plutot que de laisser croire a un total.
     fetched = result.fetchmany(settings.max_row_limit + 1)
     truncated = len(fetched) > settings.max_row_limit
     if truncated:
@@ -49,7 +48,6 @@ def execute(conn: Connection, sql: str, settings: Settings) -> QueryResult:
 
     return QueryResult(
         columns=columns,
-        column_types=_infer_column_types(columns, rows),
         rows=rows,
         row_count=len(rows),
         truncated=truncated,
@@ -62,7 +60,7 @@ def _to_jsonable(value: Any) -> Any:
     """Convertit les types Postgres en equivalents serialisables en JSON.
 
     Decimal -> float est une perte de precision assumee : ces valeurs partent
-    vers un graphique JavaScript, qui n'a de toute facon que des float64.
+    vers un JSON lu par un client, qui n'a de toute facon que des float64.
     """
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
@@ -81,31 +79,3 @@ def _to_jsonable(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(k): _to_jsonable(v) for k, v in value.items()}
     return str(value)
-
-
-def _infer_column_types(columns: list[str], rows: list[dict[str, Any]]) -> dict[str, str]:
-    """Classe chaque colonne pour que le front sache quoi tracer et comment aligner."""
-    types: dict[str, str] = {}
-    for col in columns:
-        values = [r[col] for r in rows if r.get(col) is not None]
-        if not values:
-            types[col] = "unknown"
-        elif all(isinstance(v, bool) for v in values):
-            types[col] = "boolean"
-        elif all(isinstance(v, (int, float)) for v in values):
-            types[col] = "number"
-        elif all(isinstance(v, str) and _looks_temporal(v) for v in values):
-            types[col] = "temporal"
-        else:
-            types[col] = "string"
-    return types
-
-
-def _looks_temporal(value: str) -> bool:
-    if len(value) < 8:
-        return False
-    try:
-        dt.datetime.fromisoformat(value)
-        return True
-    except ValueError:
-        return False

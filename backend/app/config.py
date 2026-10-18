@@ -2,7 +2,6 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 class Settings(BaseSettings):
     """Configuration QueryForge. Tout est surchargeable par variable d'environnement."""
 
@@ -28,8 +27,6 @@ class Settings(BaseSettings):
     # --- Enquetes (/investigate) -------------------------------------------
     # Nombre maximal d'etapes d'analyse par enquete.
     investigation_max_steps: int = 6
-    # Etapes consecutives sans changement de statut d'hypothese avant arret.
-    investigation_stall_limit: int = 2
 
     # --- Introspection -----------------------------------------------------
     schema_cache_ttl_seconds: int = 300
@@ -37,9 +34,6 @@ class Settings(BaseSettings):
     included_schemas: tuple[str, ...] = ("public",)
     # Nombre de valeurs distinctes echantillonnees par colonne texte basse cardinalite.
     sample_values_per_column: int = 8
-
-    cors_origins: tuple[str, ...] = ("http://localhost:5173",)
-
 
 @lru_cache
 def get_settings() -> Settings:

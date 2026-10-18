@@ -4,7 +4,7 @@
           |
      [Planificateur]  hypotheses + premiere etape
           |
-     +--> [Outil]      compare_periods / breakdown / run_sql (pipeline valide)
+     +--> [Outil]      compare_periods / breakdown (pipeline valide)
      |        |
      |    [Analyste]   interprete, met a jour les hypotheses, choisit la suite
      +--------+        (borne par les garde-fous)
@@ -66,7 +66,6 @@ date_column, filters (optionnel), p1_start/p1_end, p2_start/p2_end.
 - breakdown : meme metrique ventilee par `dimension` (colonne de la table, ou \
 table_liee.colonne si une cle etrangere directe existe), avec la part de chaque \
 segment dans la variation. Memes champs + dimension.
-- run_sql : requete SELECT libre, en dernier recours. Champ sql.
 - finish : tu as assez d'elements.
 
 Dates ISO AAAA-MM-JJ, fin EXCLUE (septembre = 2025-09-01 a 2025-10-01). \
@@ -189,11 +188,10 @@ class LLMReasoner:
 @dataclass
 class Limits:
     max_steps: int
-    stall_limit: int
 
     @classmethod
     def from_settings(cls, s: Settings) -> "Limits":
-        return cls(s.investigation_max_steps, s.investigation_stall_limit)
+        return cls(s.investigation_max_steps)
 
 
 class InvestigationAgent:
@@ -270,8 +268,7 @@ class InvestigationAgent:
                 stop_reason = f"analyse interrompue ({type(err).__name__})"
                 break
 
-            changed = state.apply_updates(analysis.updates)
-            state.stalled_steps = 0 if changed else state.stalled_steps + 1
+            state.apply_updates(analysis.updates)
             yield {
                 "event": "analysis",
                 "step": step,
@@ -282,9 +279,6 @@ class InvestigationAgent:
                 },
             }
 
-            if state.stalled_steps >= self._limits.stall_limit:
-                stop_reason = "aucune hypothese ne progresse"
-                break
             action = analysis.next_action
 
         yield from self._report(state, stop_reason)
@@ -312,11 +306,6 @@ class InvestigationAgent:
         )
 
     def _dispatch(self, action: Action) -> ToolOutput:
-        if action.tool == "run_sql":
-            if not action.sql.strip():
-                raise ToolError("run_sql exige un champ sql.")
-            return self._tools.run_sql(action.sql)
-
         if action.tool not in ("compare_periods", "breakdown"):
             raise ToolError(f"Outil inconnu : {action.tool!r}.")
 

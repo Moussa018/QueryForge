@@ -38,16 +38,10 @@ def optimize(statement: exp.Expression, settings: Settings) -> OptimizationResul
 
 
 def _enforce_limit(node: exp.Expression, settings: Settings, notes: list[str]) -> int | None:
-    """Injecte ou rabote le LIMIT de la requete la plus externe."""
-    # Sur une UNION, le LIMIT doit envelopper l'ensemble, pas une seule branche.
-    if not isinstance(node, exp.Select):
-        current = node.args.get("limit")
-        if current is None:
-            node.set("limit", exp.Limit(expression=exp.Literal.number(settings.default_row_limit)))
-            notes.append(f"LIMIT {settings.default_row_limit} ajoute (aucune limite fournie).")
-            return settings.default_row_limit
-        return _clamp_existing_limit(current, settings, notes)
+    """Injecte ou rabote le LIMIT de la requete la plus externe.
 
+    Sur une UNION, `node` est l'ensemble : le LIMIT l'enveloppe, pas une seule branche.
+    """
     existing = node.args.get("limit")
     if existing is None:
         node.set("limit", exp.Limit(expression=exp.Literal.number(settings.default_row_limit)))

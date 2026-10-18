@@ -281,15 +281,3 @@ class InvestigationTools:
             "segments_omitted": max(0, len(ranked) - _MAX_BREAKDOWN_ROWS),
         }
         return ToolOutput("breakdown", summary, run.sql, run.notes)
-
-    def run_sql(self, sql: str) -> ToolOutput:
-        """Echappatoire : SQL libre, mais derriere les memes barrieres."""
-        run = self._run(sql)
-        result = run.result
-        summary = {
-            "columns": result.columns,
-            "rows": result.rows[:50],
-            "row_count": result.row_count,
-            "truncated": result.truncated or result.row_count > 50,
-        }
-        return ToolOutput("run_sql", summary, run.sql, run.notes)

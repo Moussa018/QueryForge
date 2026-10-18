@@ -29,7 +29,6 @@ function ErrorPanel({ error }) {
   const stageLabel = {
     generation: 'Question non traduisible',
     validation: 'Requete refusee par la securite',
-    explain: 'Requete trop couteuse',
     llm: 'Service de generation indisponible',
   }[error.stage] || 'Erreur'
 
@@ -151,9 +150,6 @@ export default function App() {
             <div className="panel-head">
               <h2>SQL genere</h2>
               <div className="meta">
-                {outcome.estimated_cost != null && (
-                  <span>cout estime {Math.round(outcome.estimated_cost).toLocaleString('fr-FR')}</span>
-                )}
                 {outcome.attempts > 1 && <span>{outcome.attempts} tentatives</span>}
               </div>
             </div>

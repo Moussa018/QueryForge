@@ -3,7 +3,7 @@
 Le modele ne fournit jamais de SQL brut ici : il decrit une *metrique*
 (table, agregat, colonne, colonne de date) et le code construit la requete.
 Chaque identifiant est verifie contre le schema reel puis cite ; la requete
-construite passe ensuite dans `pipeline.run_sql` (AST, bornage, EXPLAIN,
+construite passe ensuite dans `pipeline.run_sql` (AST, bornage,
 READ ONLY) comme n'importe quelle autre.
 
 Les variations, pourcentages et contributions sont calcules ici, en Python :
@@ -50,7 +50,6 @@ class ToolOutput:
     tool: str
     summary: dict[str, Any]
     sql: str
-    estimated_cost: float
     notes: list[str] = field(default_factory=list)
 
 
@@ -239,11 +238,10 @@ class InvestigationTools:
         except ToolError:
             raise
         except Exception as err:
-            from app.optimizer.optimizer import QueryTooExpensive
             from app.pipeline import _clean_db_error
             from app.security.guard import SQLValidationError
 
-            if isinstance(err, (SQLValidationError, QueryTooExpensive)):
+            if isinstance(err, SQLValidationError):
                 raise ToolError(str(err)) from err
             raise ToolError(_clean_db_error(err)) from err
 
@@ -260,7 +258,7 @@ class InvestigationTools:
             "p2_range": list(p2),
             **variation(_num(row.get("p1")), _num(row.get("p2"))),
         }
-        return ToolOutput("compare_periods", summary, run.sql, run.estimated_cost, run.notes)
+        return ToolOutput("compare_periods", summary, run.sql, run.notes)
 
     def breakdown(
         self, metric: Metric, dimension: str, p1: tuple[str, str], p2: tuple[str, str]
@@ -282,7 +280,7 @@ class InvestigationTools:
             "segments": ranked[:_MAX_BREAKDOWN_ROWS],
             "segments_omitted": max(0, len(ranked) - _MAX_BREAKDOWN_ROWS),
         }
-        return ToolOutput("breakdown", summary, run.sql, run.estimated_cost, run.notes)
+        return ToolOutput("breakdown", summary, run.sql, run.notes)
 
     def run_sql(self, sql: str) -> ToolOutput:
         """Echappatoire : SQL libre, mais derriere les memes barrieres."""
@@ -294,4 +292,4 @@ class InvestigationTools:
             "row_count": result.row_count,
             "truncated": result.truncated or result.row_count > 50,
         }
-        return ToolOutput("run_sql", summary, run.sql, run.estimated_cost, run.notes)
+        return ToolOutput("run_sql", summary, run.sql, run.notes)

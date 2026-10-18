@@ -96,7 +96,6 @@ class Observation:
     summary: dict[str, Any] | None = None
     sql: str | None = None
     error: str | None = None
-    estimated_cost: float = 0.0
 
     def render(self, max_chars: int = 3500) -> str:
         head = f"[etape {self.step}] {self.action.tool} -- {self.action.rationale}"
@@ -116,7 +115,6 @@ class InvestigationState:
     evidence: dict[str, str] = field(default_factory=dict)
     observations: list[Observation] = field(default_factory=list)
     seen: set[str] = field(default_factory=set)
-    total_cost: float = 0.0
     consecutive_errors: int = 0
     stalled_steps: int = 0
 

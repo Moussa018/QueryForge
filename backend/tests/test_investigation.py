@@ -133,7 +133,6 @@ def _run(rows):
     return SqlRun(
         sql="SELECT 1",
         result=QueryResult(["p1", "p2"], {}, rows, len(rows), False, 1.0),
-        estimated_cost=10.0,
     )
 
 
@@ -166,7 +165,7 @@ class ScriptedReasoner:
 
 
 def _agent(reasoner, run_sql, **limits):
-    cfg = dict(max_steps=6, max_total_cost=1e9, stall_limit=2) | limits
+    cfg = dict(max_steps=6, stall_limit=2) | limits
     tools = InvestigationTools(lambda: SCHEMA, run_sql)
     return InvestigationAgent(reasoner, tools, lambda: SCHEMA, Limits(**cfg), today=dt.date(2025, 10, 17))
 
@@ -237,14 +236,14 @@ def test_arret_sur_stagnation():
     assert report["steps"] == 2
 
 
-def test_budget_de_cout_cumule():
+def test_budget_d_etapes():
     go_on = Analysis(
         interpretation="", updates=[], next_action=Action(**{**COMPARE, "aggregate": "avg"})
     )
     agent = _agent(
         ScriptedReasoner([go_on]), lambda sql: _run([{"p1": 1, "p2": 1}]),
-        max_total_cost=5.0, stall_limit=10,
+        max_steps=1, stall_limit=10,
     )
     report = _events(agent)[-2]
-    assert report["stop_reason"] == "budget de cout EXPLAIN cumule atteint"
+    assert report["stop_reason"] == "budget d'etapes atteint (1)"
     assert report["steps"] == 1

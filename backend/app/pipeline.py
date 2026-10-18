@@ -15,10 +15,7 @@
   [4] optimisation / bornage (LIMIT, plafond)
        |
        v
-  [5] EXPLAIN : refus si trop couteux
-       |
-       v
-  [6] execution en transaction READ ONLY
+  [5] execution en transaction READ ONLY
        |
        v
     resultat + explication + graphique suggere
@@ -38,7 +35,7 @@ from sqlalchemy import Engine
 from app.config import Settings
 from app.executor.runner import QueryResult, execute
 from app.nlp.generator import GenerationContext, GeneratedQuery, SQLGenerator
-from app.optimizer.optimizer import QueryTooExpensive, explain, optimize
+from app.optimizer.optimizer import optimize
 from app.schema.introspector import SchemaIntrospector
 from app.security.guard import SQLValidationError, validate
 from app.security.readonly import readonly_transaction
@@ -66,8 +63,6 @@ class PipelineOutcome:
     assumptions: list[str]
     result: QueryResult
     optimizer_notes: list[str] = field(default_factory=list)
-    estimated_cost: float | None = None
-    estimated_rows: int | None = None
     attempts: int = 1
 
     def to_dict(self) -> dict[str, Any]:
@@ -84,8 +79,6 @@ class PipelineOutcome:
             "truncated": self.result.truncated,
             "duration_ms": round(self.result.duration_ms, 1),
             "notes": self.optimizer_notes + self.result.notes,
-            "estimated_cost": self.estimated_cost,
-            "estimated_rows": self.estimated_rows,
             "attempts": self.attempts,
         }
 
@@ -94,7 +87,6 @@ class PipelineOutcome:
 class SqlRun:
     sql: str
     result: QueryResult
-    estimated_cost: float
     notes: list[str] = field(default_factory=list)
 
 
@@ -140,10 +132,6 @@ class QueryForgePipeline:
 
             try:
                 return self._execute(question, generated, optimized, dry_run=dry_run, attempts=attempt)
-            except QueryTooExpensive as err:
-                # Pas une erreur de syntaxe : le modele doit reduire le perimetre,
-                # pas corriger un nom de colonne.
-                raise PipelineError(str(err), stage="explain") from err
             except Exception as err:  # erreur SQL renvoyee par Postgres
                 message = _clean_db_error(err)
                 logger.warning("Execution echouee (tentative %s) : %s", attempt, message)
@@ -161,8 +149,8 @@ class QueryForgePipeline:
         """Passe du SQL deja ecrit (outils de l'agent) dans les memes barrieres.
 
         Memes etapes que `run` sans la generation : validation AST, bornage,
-        EXPLAIN, transaction READ ONLY. Les exceptions (`SQLValidationError`,
-        `QueryTooExpensive`, erreur Postgres) remontent telles quelles pour que
+        transaction READ ONLY. Les exceptions (`SQLValidationError`,
+        erreur Postgres) remontent telles quelles pour que
         l'appelant decide s'il corrige ou abandonne.
         """
         schema = self._introspector.get_schema()
@@ -170,13 +158,11 @@ class QueryForgePipeline:
         optimized = optimize(report.statement, self._settings)
 
         with readonly_transaction(self._engine, self._settings) as conn:
-            cost, est_rows, _plan = explain(conn, optimized.sql, self._settings)
             result = execute(conn, optimized.sql, self._settings)
 
         return SqlRun(
             sql=optimized.sql,
             result=result,
-            estimated_cost=cost,
             notes=optimized.notes + result.notes,
         )
 
@@ -190,8 +176,6 @@ class QueryForgePipeline:
         attempts: int,
     ) -> PipelineOutcome:
         with readonly_transaction(self._engine, self._settings) as conn:
-            cost, est_rows, _plan = explain(conn, optimized.sql, self._settings)
-
             if dry_run:
                 result = QueryResult(
                     columns=[], column_types={}, rows=[], row_count=0,
@@ -209,8 +193,6 @@ class QueryForgePipeline:
             assumptions=generated.assumptions,
             result=result,
             optimizer_notes=optimized.notes,
-            estimated_cost=cost,
-            estimated_rows=est_rows,
             attempts=attempts,
         )
 

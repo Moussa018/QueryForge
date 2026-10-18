@@ -189,12 +189,11 @@ class LLMReasoner:
 @dataclass
 class Limits:
     max_steps: int
-    max_total_cost: float
     stall_limit: int
 
     @classmethod
     def from_settings(cls, s: Settings) -> "Limits":
-        return cls(s.investigation_max_steps, s.investigation_max_total_cost, s.investigation_stall_limit)
+        return cls(s.investigation_max_steps, s.investigation_stall_limit)
 
 
 class InvestigationAgent:
@@ -213,7 +212,7 @@ class InvestigationAgent:
         self._today = today or dt.date.today()
 
     def run(self, question: str) -> Iterator[Event]:
-        """Genere les evenements de l'enquete, un par etape (consomme par le SSE)."""
+        """Genere les evenements de l'enquete, un par etape (consomme par l'API)."""
         state = InvestigationState(question=question)
         schema = self._schema_provider()
         stop_reason = "enquete terminee"
@@ -238,9 +237,6 @@ class InvestigationAgent:
                 break
             if step >= self._limits.max_steps:
                 stop_reason = f"budget d'etapes atteint ({self._limits.max_steps})"
-                break
-            if state.total_cost >= self._limits.max_total_cost:
-                stop_reason = "budget de cout EXPLAIN cumule atteint"
                 break
 
             step += 1
@@ -311,9 +307,8 @@ class InvestigationAgent:
             logger.exception("Outil %s en echec", action.tool)
             return Observation(step, action, error=f"Echec inattendu ({type(err).__name__}).")
 
-        state.total_cost += output.estimated_cost
         return Observation(
-            step, action, summary=output.summary, sql=output.sql, estimated_cost=output.estimated_cost
+            step, action, summary=output.summary, sql=output.sql
         )
 
     def _dispatch(self, action: Action) -> ToolOutput:
@@ -379,6 +374,5 @@ class InvestigationAgent:
             ],
             "stop_reason": stop_reason,
             "steps": len(state.observations),
-            "total_cost": round(state.total_cost, 1),
         }
         yield {"event": "done"}

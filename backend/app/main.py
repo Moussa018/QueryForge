@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 
@@ -161,8 +159,8 @@ class InvestigateRequest(BaseModel):
 
 
 @app.post("/investigate")
-def investigate(request: InvestigateRequest) -> StreamingResponse:
-    """Enquete sur une question ouverte ; les etapes arrivent en direct (SSE)."""
+def investigate(request: InvestigateRequest) -> dict:
+    """Enquete sur une question ouverte : renvoie le deroule des etapes puis le rapport."""
     active = _require_pipeline()
     try:
         agent = InvestigationAgent(
@@ -174,17 +172,17 @@ def investigate(request: InvestigateRequest) -> StreamingResponse:
     except Exception as err:
         raise HTTPException(status_code=503, detail=str(err)) from err
 
-    def stream():
-        try:
-            for event in agent.run(request.question):
-                yield f"event: {event['event']}\ndata: {json.dumps(event, ensure_ascii=False, default=str)}\n\n"
-        except Exception:
-            logger.exception("Enquete interrompue")
-            err = {"event": "error", "message": "Erreur interne pendant l'enquete."}
-            yield f"event: error\ndata: {json.dumps(err, ensure_ascii=False)}\n\n"
+    try:
+        events = list(agent.run(request.question))
+    except Exception as err:
+        logger.exception("Enquete interrompue")
+        raise HTTPException(status_code=500, detail="Erreur interne pendant l'enquete.") from err
 
-    return StreamingResponse(
-        stream(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    report = next((e for e in events if e["event"] == "report"), None)
+    if report is None:
+        error = next((e for e in events if e["event"] == "error"), None)
+        message = error["message"] if error else "Enquete sans resultat."
+        raise HTTPException(status_code=422, detail={"message": message, "stage": "investigation"})
+
+    steps = [e for e in events if e["event"] not in ("report", "done")]
+    return {"steps": steps, "report": report}

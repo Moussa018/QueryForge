@@ -18,11 +18,11 @@ async function request(path, options) {
   return payload
 }
 
-export function ask(question, { dryRun = false } = {}) {
+export function ask(question) {
   return request('/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, dry_run: dryRun }),
+    body: JSON.stringify({ question }),
   })
 }
 

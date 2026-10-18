@@ -6,7 +6,7 @@
   [1] introspection du schema (cache TTL)
        |
        v
-  [2] generation SQL (GPT-4o, sortie structuree)
+  [2] generation SQL (LLM, sortie structuree)
        |
        v
   [3] validation AST  --refus--> [2] avec le motif du refus (boucle bornee)
@@ -101,7 +101,7 @@ class QueryForgePipeline:
     def introspector(self) -> SchemaIntrospector:
         return self._introspector
 
-    def run(self, question: str, *, dry_run: bool = False) -> PipelineOutcome:
+    def run(self, question: str) -> PipelineOutcome:
         schema = self._introspector.get_schema()
         known_tables = schema.table_names()
 
@@ -131,7 +131,7 @@ class QueryForgePipeline:
             optimized = optimize(report.statement, self._settings)
 
             try:
-                return self._execute(question, generated, optimized, dry_run=dry_run, attempts=attempt)
+                return self._execute(question, generated, optimized, attempts=attempt)
             except Exception as err:  # erreur SQL renvoyee par Postgres
                 message = _clean_db_error(err)
                 logger.warning("Execution echouee (tentative %s) : %s", attempt, message)
@@ -172,18 +172,10 @@ class QueryForgePipeline:
         generated: GeneratedQuery,
         optimized,
         *,
-        dry_run: bool,
         attempts: int,
     ) -> PipelineOutcome:
         with readonly_transaction(self._engine, self._settings) as conn:
-            if dry_run:
-                result = QueryResult(
-                    columns=[], column_types={}, rows=[], row_count=0,
-                    truncated=False, duration_ms=0.0,
-                    notes=["Mode simulation : la requete n'a pas ete executee."],
-                )
-            else:
-                result = execute(conn, optimized.sql, self._settings)
+            result = execute(conn, optimized.sql, self._settings)
 
         return PipelineOutcome(
             question=question,

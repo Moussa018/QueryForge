@@ -29,7 +29,6 @@ def optimize(statement: exp.Expression, settings: Settings) -> OptimizationResul
     node = statement.copy()
 
     limit_applied = _enforce_limit(node, settings, notes)
-    _warn_on_unbounded_patterns(node, notes)
 
     return OptimizationResult(
         sql=node.sql(dialect="postgres", pretty=True),
@@ -75,32 +74,3 @@ def _clamp_existing_limit(limit_node: exp.Expression, settings: Settings, notes:
         )
         return settings.max_row_limit
     return value
-
-
-def _warn_on_unbounded_patterns(node: exp.Expression, notes: list[str]) -> None:
-    """Signale les motifs couteux. Informatif : on n'empeche rien ici."""
-    for select in node.find_all(exp.Select):
-        # sqlglot range la virgule de `FROM a, b` dans `joins`, comme un JOIN
-        # sans condition. Le signal n'est donc pas l'absence de joins mais
-        # l'absence de ON/USING sur l'un d'eux.
-        unconditioned = [
-            join
-            for join in (select.args.get("joins") or [])
-            if not join.args.get("on") and not join.args.get("using")
-        ]
-        if unconditioned and not select.args.get("where"):
-            notes.append(
-                "Produit cartesien probable : tables jointes sans condition ni WHERE."
-            )
-            break
-
-    if isinstance(node, exp.Select):
-        order = node.args.get("order")
-        if order and not node.args.get("limit"):
-            notes.append("ORDER BY sans LIMIT : tri de l'ensemble du resultat.")
-
-    for func in node.find_all(exp.Count):
-        if isinstance(func.this, exp.Star):
-            notes.append("COUNT(*) : peut declencher un parcours complet de table.")
-            break
-

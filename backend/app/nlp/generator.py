@@ -1,4 +1,4 @@
-"""Traduction langage naturel -> SQL via GPT-4o (LangChain).
+"""Traduction langage naturel -> SQL via LLM (LangChain, Groq).
 
 Le schema est injecte dans le prompt a chaque appel : c'est ce qui permet de
 brancher QueryForge sur n'importe quelle base sans rien recoder.

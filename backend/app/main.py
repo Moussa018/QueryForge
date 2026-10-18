@@ -14,7 +14,6 @@ from app.investigation.agent import InvestigationAgent, Limits, LLMReasoner
 from app.investigation.tools import InvestigationTools
 from app.nlp.generator import SQLGenerator
 from app.pipeline import PipelineError, QueryForgePipeline
-from app.security.guard import SQLValidationError, validate
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("queryforge")
@@ -57,14 +56,6 @@ except Exception as err:
 
 class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
-    dry_run: bool = Field(
-        default=False,
-        description="Genere, valide et estime la requete sans l'executer.",
-    )
-
-
-class ValidateRequest(BaseModel):
-    sql: str = Field(min_length=1, max_length=20_000)
 
 
 def _require_pipeline() -> QueryForgePipeline:
@@ -128,7 +119,7 @@ def get_schema(refresh: bool = False) -> dict:
 def ask(request: AskRequest) -> dict:
     """Question en francais -> SQL genere, valide, optimise, execute."""
     try:
-        outcome = _require_pipeline().run(request.question, dry_run=request.dry_run)
+        outcome = _require_pipeline().run(request.question)
     except PipelineError as err:
         raise HTTPException(
             status_code=422,
@@ -141,17 +132,6 @@ def ask(request: AskRequest) -> dict:
         raise HTTPException(status_code=500, detail="Erreur interne lors du traitement.") from err
 
     return outcome.to_dict()
-
-
-@app.post("/validate")
-def validate_sql(request: ValidateRequest) -> dict:
-    """Passe du SQL ecrit a la main dans le validateur, sans l'executer."""
-    schema = _require_pipeline().introspector.get_schema()
-    try:
-        report = validate(request.sql, known_tables=schema.table_names())
-    except SQLValidationError as err:
-        return {"valid": False, "reason": str(err)}
-    return {"valid": True, "tables": sorted(report.referenced_tables)}
 
 
 class InvestigateRequest(BaseModel):

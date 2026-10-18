@@ -64,7 +64,7 @@ export default function App() {
       .catch(() => setStatus('down'))
   }, [])
 
-  async function submit(text, { dryRun = false } = {}) {
+  async function submit(text) {
     const value = (text ?? question).trim()
     if (value.length < 3 || loading) return
 
@@ -72,7 +72,7 @@ export default function App() {
     setError(null)
     setOutcome(null)
     try {
-      setOutcome(await ask(value, { dryRun }))
+      setOutcome(await ask(value))
     } catch (err) {
       setError(err)
     } finally {
@@ -110,15 +110,10 @@ export default function App() {
         />
         <div className="ask-actions">
           <span className="hint">Entree pour envoyer · Maj+Entree pour un retour a la ligne</span>
-          <span style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => submit(undefined, { dryRun: true })} disabled={loading}>
-              Simuler
-            </button>
-            <button className="primary" onClick={() => submit()} disabled={loading}>
-              {loading && <span className="spinner" />}
-              {loading ? 'Generation…' : 'Interroger'}
-            </button>
-          </span>
+          <button className="primary" onClick={() => submit()} disabled={loading}>
+            {loading && <span className="spinner" />}
+            {loading ? 'Generation…' : 'Interroger'}
+          </button>
         </div>
       </div>
 

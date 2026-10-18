@@ -201,9 +201,7 @@ La barrière 2 a été vérifiée en connectant un **superutilisateur** : le `DE
 
 - `LIMIT` injecté quand il manque (500 par défaut), et raboté à 5 000 même si le
   modèle en demande plus ;
-- `statement_timeout` et `lock_timeout` côté serveur ;
-- signalement des motifs coûteux : produit cartésien, `ORDER BY` sans `LIMIT`,
-  `COUNT(*)`.
+- `statement_timeout` et `lock_timeout` côté serveur.
 
 > Il n'y a pas d'estimation de coût (`EXPLAIN`) avant l'exécution : une requête
 > lourde mais bornée par le `LIMIT` n'est arrêtée que par le `statement_timeout`
@@ -256,8 +254,7 @@ python -m uvicorn app.main:app --reload --port 8000
 ```
 
 > Le nom de variable `OPENAI_API_KEY` est historique : il contient la clé du
-> fournisseur configuré (Groq actuellement). Le code importe `langchain_groq` ;
-> si l'installation échoue sur cet import, `pip install langchain-groq`.
+> fournisseur configuré (Groq actuellement).
 
 Vérification :
 
@@ -290,11 +287,6 @@ aucune question de CORS en développement.
 | `GET` | `/schema?refresh=true` | schéma tel que le modèle le voit — à consulter en premier quand une génération déraille |
 | `POST` | `/ask` | question en français → SQL généré, validé, borné, exécuté |
 | `POST` | `/investigate` | question ouverte → enquête puis rapport (JSON) |
-| `POST` | `/validate` | passe du SQL écrit à la main dans le validateur, sans l'exécuter |
-
-`POST /ask` accepte `{"question": "...", "dry_run": true}` : la requête est
-générée, validée et estimée, mais **pas exécutée**. Utile pour inspecter le SQL
-avant de le lancer sur une base de production.
 
 ## Structure
 
@@ -305,7 +297,7 @@ backend/app/
 ├── nlp/                 génération SQL (LLM, sortie structurée)
 ├── schema/              introspection et cache
 ├── security/            validation AST, transaction READ ONLY
-├── optimizer/           LIMIT, détection de motifs coûteux
+├── optimizer/           injection et plafonnement du LIMIT
 ├── executor/            exécution et sérialisation des résultats
 └── investigation/       agent d'enquête
     ├── agent.py         boucle plan → outil → analyse → rapport
